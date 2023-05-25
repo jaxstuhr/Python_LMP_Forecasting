@@ -1,0 +1,54 @@
+### This script develops a crosswalk of CAISO node ids and lat/lon localisations
+
+library(here)
+library(tidyverse)
+library(stringr)
+library(readr)
+
+lmp_sample = read_csv("C:/Users/jzs88/Desktop/Python_LMP_Forecasting/raw_data/sample_day_LMPs_all_nodes.csv")
+node_ids = data.frame(unique(lmp_sample$NODE_ID)) %>% 
+  rename("node_ids" = unique.lmp_sample.NODE_ID.) %>% 
+  mutate(id_length = nchar(node_ids))
+# convert all node_ids to a regex on character list for use by str_extract()
+node_id_list = str_c(node_ids$node_ids, collapse = "|")
+
+# load in raw node locations csv downloaded from html of Nodes map, clean it up
+raw_node_locations = read_csv("C:/Users/jzs88/Desktop/Python_LMP_Forecasting/raw_data/caiso_nodes_raw.csv", skip = 3) %>% 
+  rename("raw_data" = LOAD) %>% 
+  filter(!(raw_data %in% c("LOAD", "GEN"))) 
+# various text parsing to split out region, lat, and lon
+node_locations = raw_node_locations %>% 
+  separate(col = raw_data, into = c("area", "leftover"), sep = "Node") %>% 
+  separate(col = leftover, into = c("region", "leftover"), sep = "(?<=[A-Za-z])(?=[0-9])", extra = 'merge') %>% 
+  separate(col = leftover, into = c("lat", "lon"), sep = "-",  extra = 'merge') %>% 
+  separate(col = lon, into = c("lon1", "lon2", "leftover"), sep = "\\.", extra = 'merge') %>% 
+  mutate(lon = str_c(lon1, lon2, sep = ".")) %>% 
+  select(region, lat, lon, leftover) %>% 
+  
+  # trim leftover to max length of node_ids
+  mutate(leftover = str_sub(leftover, -max(node_ids$id_length), -1)) %>% 
+  # str_extract() checking all node_ids in list and finding them in leftovers
+  mutate(node_id = str_extract(leftover, node_id_list)) %>% 
+  select(region, lat, lon, node_id) %>% 
+  na.omit()
+# convert lat, lon to numerics
+node_locations = node_locations %>% 
+  mutate(lat = as.numeric(lat)) %>% 
+  mutate(lon = -1*as.numeric(lon)) 
+
+# make df of only duplicates,  dups occur from str_extract() finding first match instead of full match
+find_dups = node_locations %>% 
+  group_by(node_id) %>% 
+  filter(n()>1)
+# list duplicate ids 
+dups = unique(find_dups$node_id)
+
+# filter out dups for accurate dataset
+node_locations_final = node_locations %>% 
+  filter(!(node_id %in% dups))
+
+write_csv(node_locations_final, "C:/Users/jzs88/Desktop/Python_LMP_Forecasting/data_outputs/node_locations_final.csv")
+
+
+
+
